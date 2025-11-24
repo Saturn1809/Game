@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vibrant Sky Ace</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #2c3e50;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+        }
+
+        #gameContainer {
+            position: relative;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            border-radius: 10px;
+            overflow: hidden;
+            width: 400px;
+            height: 600px;
+        }
+
+        canvas {
+            display: block;
+            background: linear-gradient(to bottom, #4facfe 0%, #00f2fe 100%); /* Vibrant Sky */
+        }
+
+        #uiLayer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        #scoreBoard {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            font-size: 24px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 2px 2px 0px #000;
+            z-index: 10;
+        }
+
+        #startScreen, #gameOverScreen {
+            background: rgba(0, 0, 0, 0.6);
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            color: white;
+            pointer-events: auto; /* Allow clicking buttons */
+            backdrop-filter: blur(5px);
+        }
+
+        h1 { margin: 0 0 10px 0; color: #ffeb3b; text-transform: uppercase; letter-spacing: 2px; }
+        p { margin: 10px 0; font-size: 18px; }
+
+        button {
+            background: #ff4757;
+            border: none;
+            padding: 15px 30px;
+            color: white;
+            font-size: 20px;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: transform 0.1s;
+            font-weight: bold;
+            box-shadow: 0 5px 0 #c0392b;
+        }
+
+        button:active {
+            transform: translateY(4px);
+            box-shadow: 0 1px 0 #c0392b;
+        }
+        
+        #finalScore { color: #ffeb3b; font-size: 30px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="400" height="600"></canvas>
+        
+        <div id="scoreBoard">baba ji ka thullu: 0 | Paisa: 0</div>
+
+        <div id="uiLayer">
+            <div id="startScreen">
+                <h1>Hawai Adda</h1>
+                <p>Tap, Click, or Spacebar to Fly</p>
+                <p>Collect paisa for extra baba ji ka thullu!</p>
+                <button onclick="startGame()">PLAY NOW</button>
+            </div>
+
+            <div id="gameOverScreen" class="hidden">
+                <h1>Chalo beta agli baar milna</h1>
+                <p>Kitna paise mila: <span id="finalScore">0</span></p>
+                <button onclick="resetGame()">Dubara Khelega</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+    // --- CONFIGURATION ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('scoreBoard');
+    const startScreen = document.getElementById('startScreen');
+    const gameOverScreen = document.getElementById('gameOverScreen');
+    const finalScoreEl = document.getElementById('finalScore');
+
+    // Game Variables
+    let frames = 0;
+    let score = 0;
+    let coinCount = 0;
+    let gameSpeed = 1;
+    let isRunning = false;
+    let isGameOver = false;
+
+    // Audio Context (Synthesizer)
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // --- ENTITIES ---
+
+    const plane = {
+        x: 80, // Moved slightly forward
+        y: 150,
+        radius: 15, // Used for collision detection
+        velocity: 0,
+        gravity: 0.25,
+        jump: 4.6,
+        color: '#ff4757', // Vibrant Red
+        
+        draw: function() {
+            // Calculate rotation based on velocity. 
+            // We divide velocity by a factor to dampen rotation speed, and clamp it so it doesn't spin too far.
+            let angle = Math.atan(this.velocity / 12); 
+            angle = Math.max(-0.6, Math.min(0.8, angle)); // Clamp rotation angles
+
+            ctx.save(); // Save current coordinate system
+            ctx.translate(this.x, this.y); // Move origin to center of plane
+            ctx.rotate(angle); // Rotate around the center
+
+            // --- Drawing the plane parts relative to (0,0) ---
+
+            // Tail fin
+            ctx.fillStyle = '#c0392b'; // Darker red
+            ctx.beginPath();
+            ctx.moveTo(-15, 0);
+            ctx.lineTo(-25, -12);
+            ctx.lineTo(-10, -12);
+            ctx.closePath();
+            ctx.fill();
+
+            // Fuselage (Body)
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            // Ellipse: center x, center y, radiusX, radiusY, rotation, startAngle, endAngle
+            ctx.ellipse(0, 0, 25, 12, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Cockpit Window
+            ctx.fillStyle = '#dff9fb'; // Light blueish white
+            ctx.beginPath();
+            // A small wedge near the front
+             ctx.moveTo(5, -8);
+             ctx.lineTo(15, -5);
+             ctx.lineTo(5, 0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = '#c7ecee';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // Wing (side view trapezoid)
+            ctx.fillStyle = '#e84118'; // Red-orange
+            ctx.beginPath();
+            ctx.moveTo(-5, 3);
+            ctx.lineTo(5, 3);
+            ctx.lineTo(12, 18);
+            ctx.lineTo(-8, 18);
+            ctx.closePath();
+            ctx.fill();
+            // Wing outline for definition
+            ctx.strokeStyle = '#c0392b';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+             // Nose Cone
+            ctx.fillStyle = '#333';
+            ctx.beginPath();
+            ctx.ellipse(22, 0, 5, 8, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore(); // Restorecoordinate system back to normal
+        },
+        
+        update: function() {
+            this.velocity += this.gravity;
+            this.y += this.velocity;
+
+            // Floor collision
+            if (this.y + this.radius >= canvas.height) {
+                this.y = canvas.height - this.radius;
+                gameOver();
+            }
+            // Ceiling collision
+            if (this.y - this.radius <= 0) {
+                this.y = this.radius;
+                this.velocity = 0;
+            }
+        },
+        
+        flap: function() {
+            this.velocity = -this.jump;
+            playSound('jump');
+        }
+    };
+
+    const pipes = {
+        position: [],
+        width: 52,
+        gap: 150,
+        dx: 3,
+        color: '#2ed573', // Vibrant Green
+
+        draw: function() {
+            ctx.fillStyle = this.color;
+            // Add a darker outline for pop
+            ctx.strokeStyle = '#26af61';
+            ctx.lineWidth = 3;
+
+            for(let i = 0; i < this.position.length; i++) {
+                let p = this.position[i];
+                
+                // Top Pipe
+                ctx.fillRect(p.x, 0, this.width, p.y);
+                ctx.strokeRect(p.x, 0, this.width, p.y);
+                // Cap
+                ctx.fillRect(p.x - 2, p.y - 20, this.width + 4, 20);
+                ctx.strokeRect(p.x - 2, p.y - 20, this.width + 4, 20);
+
+                
+                // Bottom Pipe
+                let bottomY = p.y + this.gap;
+                let bottomHeight = canvas.height - bottomY;
+                ctx.fillRect(p.x, bottomY, this.width, bottomHeight);
+                ctx.strokeRect(p.x, bottomY, this.width, bottomHeight);
+                 // Cap
+                ctx.fillRect(p.x - 2, bottomY, this.width + 4, 20);
+                ctx.strokeRect(p.x - 2, bottomY, this.width + 4, 20);
+            }
+        },
+
+        update: function() {
+            // Add new pipe every 120 frames
+            if(frames % 110 === 0) {
+                // Random position for the gap
+                let maxY = canvas.height - this.gap - 50; 
+                let gapPosition = Math.floor(Math.random() * (maxY - 50 + 1) + 50);
+                
+                this.position.push({
+                    x: canvas.width,
+                    y: gapPosition,
+                    passed: false
+                });
+
+                // Attempt to spawn a coin in the gap
+                coins.spawn(canvas.width + this.width/2, gapPosition + this.gap/2);
+            }
+
+            for(let i = 0; i < this.position.length; i++) {
+                let p = this.position[i];
+                p.x -= this.dx;
+
+                // Collision Detection (Using circular hitbox for the plane)
+                // Horizontal overlap
+                if(plane.x + plane.radius > p.x && plane.x - plane.radius < p.x + this.width) {
+                    // Vertical overlap (hit top pipe OR hit bottom pipe)
+                    if(plane.y - plane.radius < p.y || plane.y + plane.radius > p.y + this.gap) {
+                        gameOver();
+                    }
+                }
+
+                // Score update
+                if(p.x + this.width < plane.x && !p.passed) {
+                    score += 1; // 1 point for passing pipe
+                    p.passed = true;
+                    playSound('score');
+                    updateUI();
+                }
+
+                // Remove off-screen pipes
+                if(p.x + this.width <= 0) {
+                    this.position.shift();
+                    // Shift index back to account for removal
+                    i--; 
+                }
+            }
+        }
+    };
+
+    const coins = {
+        items: [],
+        radius: 12,
+
+        spawn: function(x, y) {
+            // 60% chance to spawn a coin in the gap
+            if(Math.random() > 0.4) {
+                this.items.push({x: x, y: y, collected: false});
+            }
+        },
+
+        draw: function() {
+            ctx.fillStyle = '#f1c40f'; // Gold
+            ctx.strokeStyle = '#f39c12'; // Darker Gold
+            ctx.lineWidth = 2;
+
+            for(let i = 0; i < this.items.length; i++) {
+                let c = this.items[i];
+                if(c.collected) continue;
+
+                // Inner part
+                ctx.beginPath();
+                ctx.arc(c.x, c.y, this.radius, 0, Math.PI*2);
+                ctx.fill();
+                ctx.stroke();
+
+                // Inner detail circle
+                ctx.beginPath();
+                ctx.arc(c.x, c.y, this.radius - 5, 0, Math.PI*2);
+                ctx.stroke();
+
+
+                // Shine effect
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(c.x - 4, c.y - 4, 3, 0, Math.PI*2);
+                ctx.fill();
+            }
+        },
+
+        update: function() {
+            for(let i = 0; i < this.items.length; i++) {
+                let c = this.items[i];
+                c.x -= pipes.dx; // Move with pipes
+
+                // Collision with plane
+                let dx = plane.x - c.x;
+                let dy = plane.y - c.y;
+                let distance = Math.sqrt(dx*dx + dy*dy);
+
+                if(distance < plane.radius + this.radius + 5 && !c.collected) {
+                    c.collected = true;
+                    score += 5; // 5 points for a coin
+                    coinCount++;
+                    playSound('coin');
+                    updateUI();
+                }
+
+                // Cleanup
+                if(c.x + this.radius < 0) {
+                    this.items.shift();
+                    i--;
+                }
+            }
+        }
+    }
+
+    // --- GAME LOOP ---
+
+    function draw() {
+        // Clear Canvas
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw Background Clouds (Simple decoration)
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.beginPath();
+        ctx.arc(100 - (frames % 450 * 0.5), 100, 30, 0, Math.PI*2);
+        ctx.arc(130 - (frames % 450 * 0.5), 80, 40, 0, Math.PI*2);
+        ctx.arc(160 - (frames % 450 * 0.5), 100, 30, 0, Math.PI*2);
+        ctx.fill();
+        
+        ctx.beginPath();
+        ctx.arc(300 - (frames % 500 * 0.8), 200, 25, 0, Math.PI*2);
+        ctx.arc(330 - (frames % 500 * 0.8), 180, 35, 0, Math.PI*2);
+        ctx.arc(360 - (frames % 500 * 0.8), 200, 25, 0, Math.PI*2);
+        ctx.fill();
+
+        pipes.draw();
+        coins.draw();
+        plane.draw();
+    }
+
+    function update() {
+        plane.update();
+        pipes.update();
+        coins.update();
+        frames++;
+    }
+
+    function loop() {
+        if(!isGameOver && isRunning) {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+    }
+
+    function updateUI() {
+        scoreEl.innerText = `Score: ${score} | Coins: ${coinCount}`;
+    }
+
+    // --- GAME STATE MANAGEMENT ---
+
+    function startGame() {
+        // Resume audio context if suspended (browser policy)
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+        
+        startScreen.classList.add('hidden');
+        resetVariables();
+        isRunning = true;
+        isGameOver = false;
+        loop();
+        playSound('start');
+    }
+
+    function gameOver() {
+        isGameOver = true;
+        isRunning = false;
+        gameOverScreen.classList.remove('hidden');
+        finalScoreEl.innerText = score;
+        playSound('crash');
+    }
+
+    function resetGame() {
+        gameOverScreen.classList.add('hidden');
+        startGame();
+    }
+
+    function resetVariables() {
+        plane.y = 150;
+        plane.velocity = 0;
+        pipes.position = [];
+        coins.items = [];
+        score = 0;
+        coinCount = 0;
+        frames = 0;
+        updateUI();
+        draw(); // Draw initial state
+    }
+
+    // --- INPUT HANDLING ---
+
+    window.addEventListener('keydown', (e) => {
+        if(e.code === 'Space') {
+            if(isRunning) plane.flap();
+            else if(!isRunning && !isGameOver && startScreen.classList.contains('hidden')) { 
+                // Prevent flap if waiting
+            }
+        }
+    });
+
+    // Mouse and Touch
+    canvas.addEventListener('mousedown', () => {
+        if(isRunning) plane.flap();
+    });
+    canvas.addEventListener('touchstart', (e) => {
+        e.preventDefault(); // Prevent scrolling
+        if(isRunning) plane.flap();
+    });
+
+
+    // --- AUDIO SYSTEM (Synthesizer) ---
+    function playSound(type) {
+        if (!audioCtx) return;
+        
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+
+        if (type === 'jump') {
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(500, audioCtx.currentTime + 0.1);
+            gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.1);
+        } 
+        else if (type === 'coin') {
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(1200, audioCtx.currentTime);
+            osc.frequency.linearRampToValueAtTime(1800, audioCtx.currentTime + 0.1);
+            gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.2);
+        }
+        else if (type === 'crash') {
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.3);
+            gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.3);
+        }
+        else if (type === 'start') {
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+            osc.frequency.linearRampToValueAtTime(600, audioCtx.currentTime + 0.1);
+            gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.2);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.2);
+        }
+    }
+
+    // Initial Render
+    draw();
+
+</script>
+</body>
+</html>
